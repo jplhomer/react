@@ -368,6 +368,166 @@ describe('ReactDOMFizzServer', () => {
   });
 
   // @gate experimental
+  it.only('does not warn about hydration mismatches if multiple things suspended in an earlier siblings', async () => {
+    const makeApp = () => {
+      let resolve1;
+      const imports1 = new Promise(r => {
+        resolve1 = () =>
+          r({
+            default: props => (
+              <span id={`async-${props.id}`}>{props.children}</span>
+            ),
+          });
+      });
+      let resolve2;
+      const imports2 = new Promise(r => {
+        resolve2 = () =>
+          r({
+            default: props => (
+              <span id={`async-${props.id}`}>{props.children}</span>
+            ),
+          });
+      });
+      let resolve3;
+      const imports3 = new Promise(r => {
+        resolve3 = () =>
+          r({
+            default: props => (
+              <span id={`async-${props.id}`}>{props.children}</span>
+            ),
+          });
+      });
+      const Lazy1 = React.lazy(() => imports1);
+      const Lazy2 = React.lazy(() => imports2);
+      const Lazy3 = React.lazy(() => imports3);
+
+      const App = () => (
+        <div>
+          <Suspense fallback={<span>Loading...</span>}>
+            <Lazy1 id="1">before</Lazy1>
+            <Lazy2 id="2">
+              <span>middle</span>
+              <Lazy3 id="3">lazy middle</Lazy3>
+            </Lazy2>
+            <span id="end">last</span>
+          </Suspense>
+        </div>
+      );
+
+      return [App, resolve1, resolve2, resolve3];
+    };
+
+    // Server-side
+    const [App, resolve1, resolve2, resolve3] = makeApp();
+    await act(async () => {
+      const {pipe} = ReactDOMFizzServer.renderToPipeableStream(<App />);
+      pipe(writable);
+    });
+    expect(getVisibleChildren(container)).toEqual(
+      <div>
+        <span>Loading...</span>
+      </div>,
+    );
+    await act(async () => {
+      resolve1();
+    });
+    expect(getVisibleChildren(container)).toEqual(
+      <div>
+        <span>Loading...</span>
+      </div>,
+    );
+    await act(async () => {
+      resolve2();
+    });
+    expect(getVisibleChildren(container)).toEqual(
+      <div>
+        <span>Loading...</span>
+      </div>,
+    );
+    await act(async () => {
+      resolve3();
+    });
+    expect(getVisibleChildren(container)).toEqual(
+      <div>
+        <span id="async-1">before</span>
+        <span id="async-2">
+          <span>middle</span>
+          <span id="async-3">lazy middle</span>
+        </span>
+        <span id="end">last</span>
+      </div>,
+    );
+
+    // Client-side
+    const [
+      HydrateApp,
+      hydrateResolve1,
+      hydrateResolve2,
+      hydrateResolve3,
+    ] = makeApp();
+    await act(async () => {
+      ReactDOMClient.hydrateRoot(container, <HydrateApp />, {
+        onRecoverableError(e) {
+          console.log(e);
+        },
+      });
+    });
+
+    expect(getVisibleChildren(container)).toEqual(
+      <div>
+        <span id="async-1">before</span>
+        <span id="async-2">
+          <span>middle</span>
+          <span id="async-3">lazy middle</span>
+        </span>
+        <span id="end">last</span>
+      </div>,
+    );
+
+    await act(async () => {
+      hydrateResolve1();
+    });
+    expect(getVisibleChildren(container)).toEqual(
+      <div>
+        <span id="async-1">before</span>
+        <span id="async-2">
+          <span>middle</span>
+          <span id="async-3">lazy middle</span>
+        </span>
+        <span id="end">last</span>
+      </div>,
+    );
+
+    await act(async () => {
+      hydrateResolve2();
+    });
+    expect(getVisibleChildren(container)).toEqual(
+      <div>
+        <span id="async-1">before</span>
+        <span id="async-2">
+          <span>middle</span>
+          <span id="async-3">lazy middle</span>
+        </span>
+        <span id="end">last</span>
+      </div>,
+    );
+
+    await act(async () => {
+      hydrateResolve3();
+    });
+    expect(getVisibleChildren(container)).toEqual(
+      <div>
+        <span id="async-1">before</span>
+        <span id="async-2">
+          <span>middle</span>
+          <span id="async-3">lazy middle</span>
+        </span>
+        <span id="end">last</span>
+      </div>,
+    );
+  });
+
+  // @gate experimental
   it('should support nonce scripts', async () => {
     CSPnonce = 'R4nd0m';
     try {
